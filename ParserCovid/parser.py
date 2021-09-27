@@ -1,92 +1,69 @@
-import csv
+# Парсер для сайтов с данными по короновирусу, полученные данные выводятся в буфер обмена вместе с датой использования скрипта, каждые значения отделяются табуляцией (TAB)
+# Принимаются только данные на настоящий день т.е. обновлялись сегодня
 
-import requests
-from bs4 import BeautifulSoup
+import datetime  # Библ. узнающая сегодняшнее число
+import re  # Библ. regular expression
 
-worldURL = 'https://coronavirus.jhu.edu/map.html'  # Сайт с данными по миру
+import pyperclip as pc  # Библ. имеющая доступ к буферу обмена
+# Библеотеки
+import requests  # Библ. предоставляющая доступ программе к сайтам или файлам в сети
+from bs4 import BeautifulSoup  # Библ. читающая HTML страницу
+
+worldURL = 'https://jhucoronavirus.azureedge.net/jhucoronavirus/homepage-featured-stats.json'  # JSON файл с данными по миру
 countryURL = 'https://xn--80aesfpebagmfblc0a.xn--p1ai/'  # Сайт с данными по стране
 regionURL = 'https://xn--b1ag8a.xn--p1ai/%D1%81%D1%82%D0%BE%D0%BF%D0%B2%D0%B8%D1%80%D1%83%D1%81'  # Сайт с данными по области
 
-total_states = []
-file_path = 'covid.csv'
 
-
-def get_html(URL):  # Получаем HTML файл сайта
+def get_file(URL):  # Функция получаящая файл с сайта
     r = requests.get(URL)
     return r
 
 
-def parse_world():
-    response = requests.get('https://jhucoronavirus.azureedge.net/jhucoronavirus/homepage-featured-stats.json')
-    if response.ok:
-        world_cases = response.json()['cases']['global']
-        world_deaths = response.json()['deaths']['global']
-        print('В мире: \n', 'Заболевших:', world_cases, '\n', 'Смертей:', world_deaths, '\n')
-        total_states.append(world_cases)
-        total_states.append(world_deaths)
+def parse_world():  # Функция достающая данные из сайта мира
+    response = get_file(worldURL)  # Файл с данными
+    if response.ok:  # Проверка файла
+        world_update_date = int(
+            re.search(r'\d+', response.headers.get('Last-Modified')).group(0))  # Получаем дату обновления файла
+        if world_update_date == datetime.date.today().day:  # Проверка свежести файла
+            world_cases = response.json()['cases']['global']  # Достаём количество заболеваний
+            world_deaths = response.json()['deaths']['global']  # Достаём количество смертей
+            return [world_cases, world_deaths]
+        else:  # Если же файл устаревший то возвращаем пустые значения
+            return ['', '']
 
 
-def parse_country():
-    soup = BeautifulSoup(get_html(countryURL).text, 'html.parser')
-    country_cases = soup.find('div', class_='cv-countdown__item-value _accent').find('span').text.replace(' ', '')
-    country_deaths = soup.findAll('div', class_='cv-countdown__item')[4].find('div',
-                                                                              class_='cv-countdown__item-value').find(
-        'span').text.replace(' ', '')
-    print('В России: \n', 'Заболевших', country_cases, '\n', 'Смертей:', country_deaths, '\n')
-    total_states.append(country_cases)
-    total_states.append(country_deaths)
+def parse_country():  # Функция достающая данные из сайта страны
+    soup = BeautifulSoup(get_file(countryURL).text, 'html.parser')  # Получаем HTML элементы страницы
+    country_update_date = soup.find('div', class_='cv-banner__description').text  # Получаем дату обновления файла
+    if int(re.search(r'\d+', country_update_date)[0]) == int(datetime.date.today().day):  # Проверка свежести файла
+        country_cases = soup.find('div', class_='cv-countdown__item-value _accent').find('span').text.replace(' ',
+                                                                                                              '')  # Достаём количество заболеваний
+        country_deaths = soup.findAll('div', class_='cv-countdown__item')[4].find('div',
+                                                                                  class_='cv-countdown__item-value').find(
+            'span').text.replace(' ', '')  # Достаём количество смертей
+        return [country_cases, country_deaths]
+    else:  # Если же файл устаревший то возвращаем пустые значения
+        return ['', '']
 
 
-def parse_region():
-    soup = BeautifulSoup(get_html(regionURL).text, 'html.parser')
-    details = soup.find('div', class_='content').findAll('p')[1].text.replace('.', '').split(' ')
-    region_cases = soup.find('table', class_='region-table').find('span').text
-    region_deaths = soup.find('table', class_='region-table').findAll('td')[2].find('span').text
-    last_num = 0
-    states = []
-    i = 0
-    for word in details:
-        if word[0].isdigit():
-            if last_num != 0:
-                states.append(str(last_num) + str(word))
-                last_num = 0
-            else:
-                last_num = word
-                if not details[i + 1][0].isdigit():
-                    states.append(last_num)
-                    last_num = 0
-        i += 1
-    region_heavy_cases = states[1]
-    region_reanimation = states[2]
-    region_mechanical_ventilaion = states[3]
-    region_medium_heavy_cases = states[4]
-    print('В Свердловской обл:\n', 'Заболевания:', region_cases, '\n', 'Смерти:', region_deaths, '\n',
-          'Тяжкие заболевания:',
-          region_heavy_cases, '\n', 'Заболевшие в реанимации:', region_reanimation, '\n',
-          'Заболевших на аппаратах ИВЛ:',
-          region_mechanical_ventilaion, '\n', 'Заболевания средней тяжести:', region_medium_heavy_cases)
-    total_states.append(region_cases)
-    total_states.append(region_deaths)
-    total_states.append(region_heavy_cases)
-    total_states.append(region_reanimation)
-    total_states.append(region_mechanical_ventilaion)
-    total_states.append(region_medium_heavy_cases)
+def parse_region():  # Функция достающая данные из сайта области
+    soup = BeautifulSoup(get_file(regionURL).text, 'html.parser')  # Получаем HTML элементы страницы
+    details = soup.find('div', class_='content').findAll('p')[1].text.replace(' ', '')  # Получаем большой текст с данными
+    region_update_date = soup.find('div', class_='content').findAll('span')[1].text  # Получаем дату обновления файла
+    if int(re.search(r'\d+', region_update_date)[0]) == int(datetime.date.today().day):  # Проверка свежести файла
+        region_cases = soup.find('table', class_='region-table').find('span').text  # Достаём количество заболеваний
+        region_deaths = soup.find('table', class_='region-table').findAll('td')[2].find('span').text  # Достаём количество смертей
+        values = re.findall(r'\d+', details)
+
+        return [region_cases, region_deaths, values[1], values[2], values[3], values[4]]
+    else:  # Если же файл устаревший то возвращаем пустые значения
+        return ['', '', '', '', '', '']
 
 
-parse_world()
-parse_country()
-parse_region()
-try:
-    file = open(file_path, 'r', newline='')
-    file = open(file_path, 'a', newline='')
-    writer = csv.writer(file, delimiter=';')
-    writer.writerow(
-        [total_states[0], total_states[1], total_states[2], total_states[3], total_states[4], total_states[5],
-         total_states[6], total_states[7], total_states[8], total_states[9]])
-except FileNotFoundError:
-    file = open(file_path, 'w', newline='')
-    writer = csv.writer(file, delimiter=';')
-    writer.writerow([''])
-    writer.writerow(
-        [total_states[0], total_states[1], total_states[2], total_states[3], total_states[4], total_states[5],
-         total_states[6], total_states[7], total_states[8], total_states[9]])
+date = (str(datetime.date.today()).replace('-', '.'))  # Сегодняшнее число
+world_states = parse_world()  # Данные по миру
+country_states = parse_country()  # Данные по стране
+region_states = parse_region()  # Данные по области
+
+pc.copy(f'{date}\t{world_states[0]}\t{world_states[1]}\t{country_states[0]}\t{country_states[1]}\t{region_states[0]}\t'  # Копирование в буфер обмена
+        f'{region_states[1]}\t{region_states[2]}\t{region_states[3]}\t{region_states[4]}\t{region_states[5]}')
